@@ -63,8 +63,108 @@ public enum ShoppingCartStatus
 public class GettingStateFromEventsTests
 {
     // 1. Add logic here
-    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events) =>
-        throw new NotImplementedException();
+    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events)
+    {
+        ShoppingCart shoppingCart = null!;
+
+        foreach (var @event in events)
+        {
+            switch (@event)
+            {
+                case ShoppingCartOpened shoppingCartOpened:
+                    {
+                        shoppingCart = new ShoppingCart(
+                            shoppingCartOpened.ShoppingCartId,
+                           shoppingCartOpened.ClientId,
+                           ShoppingCartStatus.Pending,
+                           []
+                         );
+                    }
+                    break;
+
+                case ProductItemAddedToShoppingCart addedToShoppingCart:
+                    {
+                        if (shoppingCart.Id != addedToShoppingCart.ShoppingCartId)
+                            throw new Exception("Event had a different shoppingCartId");
+
+                        var newProductItem = new PricedProductItem(
+                            addedToShoppingCart.ProductItem.ProductId,
+                            addedToShoppingCart.ProductItem.Quantity,
+                            addedToShoppingCart.ProductItem.UnitPrice
+                        );
+
+                        var updatedProductItems = shoppingCart.ProductItems.Select(item =>
+                            item.ProductId == newProductItem.ProductId
+                                ? newProductItem with { Quantity = item.Quantity + newProductItem.Quantity }
+                                : item
+                        ).ToList();
+
+                        if (!updatedProductItems.Any(item => item.ProductId == newProductItem.ProductId))
+                            updatedProductItems.Add(newProductItem);
+
+                        shoppingCart = shoppingCart with
+                        {
+                            ProductItems = updatedProductItems.ToArray()
+                        };
+                    }
+                    break;
+
+                case ProductItemRemovedFromShoppingCart removedFromShoppingCart:
+                    {
+                        if (shoppingCart.Id != removedFromShoppingCart.ShoppingCartId)
+                            throw new Exception("Event had a different shoppingCartId");
+
+                        var updatedProductItems = shoppingCart.ProductItems
+                            .Select(item =>
+                                item.ProductId == removedFromShoppingCart.ProductItem.ProductId
+                                    ? item with { Quantity = item.Quantity - removedFromShoppingCart.ProductItem.Quantity }
+                                    : item
+                            )
+                            .Where(item => item.Quantity > 0) // Rimuovi elementi con quantità zero o negativa
+                            .ToList();
+
+                        shoppingCart = shoppingCart with
+                        {
+                            ProductItems = updatedProductItems.ToArray()
+                        };
+                    }
+                    break;
+
+                case ShoppingCartConfirmed shoppingCartConfirmed:
+                    {
+                        if (shoppingCart.Id != shoppingCartConfirmed.ShoppingCartId)
+                            throw new Exception("Event had a different shoppingCartId");
+
+                        shoppingCart = shoppingCart with
+                        {
+                            Status = ShoppingCartStatus.Confirmed,
+                            ConfirmedAt = shoppingCartConfirmed.ConfirmedAt
+                        };
+                    }
+                    break;
+
+                case ShoppingCartCanceled shoppingCartCanceled:
+                    {
+
+                        if (shoppingCart.Id != shoppingCartCanceled.ShoppingCartId)
+                            throw new Exception("Event had a different shoppingCartId");
+
+                        shoppingCart = shoppingCart with
+                        {
+                            Status = ShoppingCartStatus.Confirmed,
+                            CanceledAt = shoppingCartCanceled.CanceledAt
+                        };
+                    }
+                    break;
+
+                default:
+                    throw new NotImplementedException($"This event {@event.GetType()} doesnt exists");
+
+            }
+        }
+
+        return shoppingCart;
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
