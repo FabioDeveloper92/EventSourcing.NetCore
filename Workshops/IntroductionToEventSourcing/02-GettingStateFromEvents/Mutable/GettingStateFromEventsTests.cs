@@ -149,6 +149,9 @@ public enum ShoppingCartStatus
 public class GettingStateFromEventsTests
 {
     // 1. Add logic here
+    // This approach uses mutable entities, directly updating the existing state 
+    // with each event, providing better performance but requiring careful handling of changes.
+
     private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events)
     {
         var shoppingCart = new ShoppingCart();

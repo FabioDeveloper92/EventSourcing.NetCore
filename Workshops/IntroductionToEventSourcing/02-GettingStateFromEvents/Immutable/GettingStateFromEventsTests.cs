@@ -63,6 +63,9 @@ public enum ShoppingCartStatus
 public class GettingStateFromEventsTests
 {
     // 1. Add logic here
+    // This approach uses immutable structures, creating a new instance of the entity 
+    // for each applied event, ensuring state safety and making tracking changes easier.
+
     private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events)
     {
         ShoppingCart shoppingCart = null!;
