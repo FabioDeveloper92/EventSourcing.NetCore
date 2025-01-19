@@ -33,7 +33,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -56,6 +56,87 @@ public class ShoppingCart
     public IList<PricedProductItem> ProductItems { get; set; } = new List<PricedProductItem>();
     public DateTime? ConfirmedAt { get; set; }
     public DateTime? CanceledAt { get; set; }
+
+    public void Evolve(object @event)
+    {
+        switch (@event)
+        {
+            case ShoppingCartOpened shoppingCartOpened:
+                Apply(shoppingCartOpened);
+                break;
+            case ProductItemAddedToShoppingCart productItemAdded:
+                Apply(productItemAdded);
+                break;
+            case ProductItemRemovedFromShoppingCart productItemRemoved:
+                Apply(productItemRemoved);
+                break;
+            case ShoppingCartConfirmed shoppingCartConfirmed:
+                Apply(shoppingCartConfirmed);
+                break;
+            case ShoppingCartCanceled shoppingCartCanceled:
+                Apply(shoppingCartCanceled);
+                break;
+        }
+    }
+
+    private void Apply(ShoppingCartOpened shoppingCartOpened)
+    {
+        Id = shoppingCartOpened.ShoppingCartId;
+        ClientId = shoppingCartOpened.ClientId;
+        Status = ShoppingCartStatus.Pending;
+    }
+
+    private void Apply(ProductItemAddedToShoppingCart productItemAdded)
+    {
+        if (productItemAdded.ShoppingCartId != Id)
+            throw new Exception("You are trying to apply an event to a different ShoppingCart");
+
+        var current = ProductItems.SingleOrDefault(
+            pi => pi.ProductId == productItemAdded.ProductItem.ProductId
+        );
+
+        if (current == null)
+            ProductItems.Add(productItemAdded.ProductItem);
+        else
+            current.Quantity += productItemAdded.ProductItem.Quantity;
+    }
+
+    private void Apply(ProductItemRemovedFromShoppingCart productItemRemoved)
+    {
+        if (productItemRemoved.ShoppingCartId != Id)
+            throw new Exception("You are trying to apply an event to a different ShoppingCart");
+
+        var current = ProductItems.SingleOrDefault(
+            pi => pi.ProductId == productItemRemoved.ProductItem.ProductId
+        );
+
+        if (current is null)
+            throw new Exception("Product not found in the cart");
+
+        if (current.Quantity >= productItemRemoved.ProductItem.Quantity)
+            ProductItems.Remove(current);
+        else
+            current.Quantity -= productItemRemoved.ProductItem.Quantity;
+    }
+
+    private void Apply(ShoppingCartConfirmed shoppingCartConfirmed)
+    {
+        if (shoppingCartConfirmed.ShoppingCartId != Id)
+            throw new Exception("You are trying to apply an event to a different ShoppingCart");
+
+        Status = ShoppingCartStatus.Confirmed;
+        ConfirmedAt = shoppingCartConfirmed.ConfirmedAt;
+    }
+
+    private void Apply(ShoppingCartCanceled shoppingCartCanceled)
+    {
+        if (shoppingCartCanceled.ShoppingCartId != Id)
+            throw new Exception("You are trying to apply an event to a different ShoppingCart");
+
+        Status = ShoppingCartStatus.Canceled;
+        CanceledAt = shoppingCartCanceled.CanceledAt;
+    }
+
 }
 
 public enum ShoppingCartStatus
@@ -68,8 +149,17 @@ public enum ShoppingCartStatus
 public class GettingStateFromEventsTests
 {
     // 1. Add logic here
-    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events) =>
-        throw new NotImplementedException();
+    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events)
+    {
+        var shoppingCart = new ShoppingCart();
+
+        foreach (var @event in events)
+        {
+            shoppingCart.Evolve(@event);
+        }
+
+        return shoppingCart;
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
@@ -82,17 +172,23 @@ public class GettingStateFromEventsTests
         var twoPairsOfShoes =
             new PricedProductItem
             {
-                ProductId = shoesId, Quantity = 2, UnitPrice = 100
+                ProductId = shoesId,
+                Quantity = 2,
+                UnitPrice = 100
             };
         var pairOfShoes =
             new PricedProductItem
             {
-                ProductId = shoesId, Quantity = 1, UnitPrice = 100
+                ProductId = shoesId,
+                Quantity = 1,
+                UnitPrice = 100
             };
         var tShirt =
             new PricedProductItem
             {
-                ProductId = tShirtId, Quantity = 1, UnitPrice = 50
+                ProductId = tShirtId,
+                Quantity = 1,
+                UnitPrice = 50
             };
 
         var events = new ShoppingCartEvent[]
