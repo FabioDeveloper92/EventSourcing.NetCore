@@ -52,8 +52,14 @@ public record ProductItem(
 public class GettingStateFromEventsTests
 {
     // TODO: Fill append events logic here.
-    private static Task AppendEvents(IDocumentSession documentSession, Guid streamId, object[] events, CancellationToken ct) =>
-        throw new NotImplementedException();
+    private static Task AppendEvents(IDocumentSession documentSession, Guid streamId, object[] events, CancellationToken ct)
+    {
+        documentSession.Events.Append(
+            streamId,
+            events
+        );
+        return documentSession.SaveChangesAsync(ct);
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
