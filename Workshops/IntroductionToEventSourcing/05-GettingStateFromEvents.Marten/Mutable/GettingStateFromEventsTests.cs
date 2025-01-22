@@ -58,6 +58,80 @@ public class ShoppingCart
     public IList<PricedProductItem> ProductItems { get; } = new List<PricedProductItem>();
     public DateTime? ConfirmedAt { get; private set; }
     public DateTime? CanceledAt { get; private set; }
+
+    public void Evolve(object @event)
+    {
+        switch (@event)
+        {
+            case ShoppingCartOpened shoppingCartOpened:
+                Apply(shoppingCartOpened);
+                break;
+            case ProductItemAddedToShoppingCart productItemAdded:
+                Apply(productItemAdded);
+                break;
+            case ProductItemRemovedFromShoppingCart productItemRemoved:
+                Apply(productItemRemoved);
+                break;
+            case ShoppingCartConfirmed shoppingCartConfirmed:
+                Apply(shoppingCartConfirmed);
+                break;
+            case ShoppingCartCanceled shoppingCartCanceled:
+                Apply(shoppingCartCanceled);
+                break;
+        }
+    }
+
+    private void Apply(ShoppingCartOpened opened)
+    {
+        Id = opened.ShoppingCartId;
+        ClientId = opened.ClientId;
+        Status = ShoppingCartStatus.Pending;
+    }
+
+    private void Apply(ProductItemAddedToShoppingCart productItemAdded)
+    {
+        var (_, pricedProductItem) = productItemAdded;
+        var productId = pricedProductItem.ProductId;
+        var quantityToAdd = pricedProductItem.Quantity;
+
+        var current = ProductItems.SingleOrDefault(
+            pi => pi.ProductId == productId
+        );
+
+        if (current == null)
+            ProductItems.Add(pricedProductItem);
+        else
+            current.Quantity += quantityToAdd;
+    }
+
+    private void Apply(ProductItemRemovedFromShoppingCart productItemRemoved)
+    {
+        var (_, pricedProductItem) = productItemRemoved;
+        var productId = pricedProductItem.ProductId;
+        var quantityToRemove = pricedProductItem.Quantity;
+
+        var current = ProductItems.Single(
+            pi => pi.ProductId == productId
+        );
+
+        if (current.Quantity == quantityToRemove)
+            ProductItems.Remove(current);
+        else
+            current.Quantity -= quantityToRemove;
+    }
+
+    private void Apply(ShoppingCartConfirmed confirmed)
+    {
+        Status = ShoppingCartStatus.Confirmed;
+        ConfirmedAt = confirmed.ConfirmedAt;
+    }
+
+    private void Apply(ShoppingCartCanceled canceled)
+    {
+        Status = ShoppingCartStatus.Canceled;
+        CanceledAt = canceled.CanceledAt;
+    }
+
 }
 
 public enum ShoppingCartStatus
@@ -76,12 +150,12 @@ public class GettingStateFromEventsTests: MartenTest
     /// <param name="shoppingCartId"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    private static Task<ShoppingCart> GetShoppingCart(
-        IDocumentSession documentSession,
-        Guid shoppingCartId,
-        CancellationToken cancellationToken) =>
-        // 1. Add logic here
-        throw new NotImplementedException();
+    private static async Task<ShoppingCart> GetShoppingCart(IDocumentSession documentSession, Guid shoppingCartId, CancellationToken ct)
+    {
+        var shoppingCart = await documentSession.Events.AggregateStreamAsync<ShoppingCart>(shoppingCartId, token: ct);
+
+        return shoppingCart ?? throw new InvalidOperationException("Shopping cart doesnt found!");
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
