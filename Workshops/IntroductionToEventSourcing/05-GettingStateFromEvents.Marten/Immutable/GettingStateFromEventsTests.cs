@@ -35,7 +35,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -53,7 +53,98 @@ public record ShoppingCart(
     PricedProductItem[] ProductItems,
     DateTime? ConfirmedAt = null,
     DateTime? CanceledAt = null
-);
+)
+{
+    public ShoppingCart Apply(ShoppingCartEvent @event) =>
+        @event switch
+        {
+            ShoppingCartOpened shoppingCartOpened => new ShoppingCart(
+                shoppingCartOpened.ShoppingCartId,
+                shoppingCartOpened.ClientId,
+                ShoppingCartStatus.Pending,
+                Array.Empty<PricedProductItem>()
+            ),
+
+            ProductItemAddedToShoppingCart addedToShoppingCart => ApplyProductItemAdded(addedToShoppingCart),
+
+            ProductItemRemovedFromShoppingCart removedFromShoppingCart => ApplyProductItemRemoved(removedFromShoppingCart),
+
+            ShoppingCartConfirmed shoppingCartConfirmed => ApplyConfirmed(shoppingCartConfirmed),
+
+            ShoppingCartCanceled shoppingCartCanceled => ApplyCanceled(shoppingCartCanceled),
+
+            _ => throw new NotImplementedException($"Event of type {@event.GetType()} is not supported.")
+        };
+
+    private ShoppingCart ApplyProductItemAdded(ProductItemAddedToShoppingCart @event)
+    {
+        if (Id != @event.ShoppingCartId)
+            throw new InvalidOperationException("Event has a different ShoppingCartId.");
+
+        var newProductItem = new PricedProductItem(
+            @event.ProductItem.ProductId,
+            @event.ProductItem.Quantity,
+            @event.ProductItem.UnitPrice
+        );
+
+        var updatedProductItems = ProductItems
+            .Select(item =>
+                item.ProductId == newProductItem.ProductId
+                    ? item with { Quantity = item.Quantity + newProductItem.Quantity }
+                    : item
+            )
+            .ToList();
+
+        if (!updatedProductItems.Any(item => item.ProductId == newProductItem.ProductId))
+            updatedProductItems.Add(newProductItem);
+
+        return this with { ProductItems = updatedProductItems.ToArray() };
+    }
+
+    private ShoppingCart ApplyProductItemRemoved(ProductItemRemovedFromShoppingCart @event)
+    {
+        if (Id != @event.ShoppingCartId)
+            throw new InvalidOperationException("Event has a different ShoppingCartId.");
+
+        var updatedProductItems = ProductItems
+            .Select(item =>
+                item.ProductId == @event.ProductItem.ProductId
+                    ? item with { Quantity = item.Quantity - @event.ProductItem.Quantity }
+                    : item
+            )
+            .Where(item => item.Quantity > 0)
+            .ToArray();
+
+        return this with { ProductItems = updatedProductItems };
+    }
+
+    private ShoppingCart ApplyConfirmed(ShoppingCartConfirmed @event)
+    {
+        if (Id != @event.ShoppingCartId)
+            throw new InvalidOperationException("Event has a different ShoppingCartId.");
+
+        return this with
+        {
+            Status = ShoppingCartStatus.Confirmed,
+            ConfirmedAt = @event.ConfirmedAt
+        };
+    }
+
+    private ShoppingCart ApplyCanceled(ShoppingCartCanceled @event)
+    {
+        if (Id != @event.ShoppingCartId)
+            throw new InvalidOperationException("Event has a different ShoppingCartId.");
+
+        return this with
+        {
+            Status = ShoppingCartStatus.Canceled,
+            CanceledAt = @event.CanceledAt
+        };
+    }
+
+    private ShoppingCart() : this(Guid.Empty, Guid.Empty, ShoppingCartStatus.Pending, Array.Empty<PricedProductItem>()) { }
+}
+
 
 public enum ShoppingCartStatus
 {
@@ -71,12 +162,13 @@ public class GettingStateFromEventsTests: MartenTest
     /// <param name="shoppingCartId"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    private static Task<ShoppingCart> GetShoppingCart(
-        IDocumentSession documentSession,
-        Guid shoppingCartId,
-        CancellationToken cancellationToken) =>
-        // 1. Add logic here
-        throw new NotImplementedException();
+    private static async Task<ShoppingCart> GetShoppingCart(IDocumentSession documentSession, Guid shoppingCartId,
+       CancellationToken cancellationToken)
+    {
+        var shoppingCart = await documentSession.Events.AggregateStreamAsync<ShoppingCart>(shoppingCartId, token: cancellationToken);
+
+        return shoppingCart ?? throw new InvalidOperationException("Shopping Cart doesnt exist!");
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
