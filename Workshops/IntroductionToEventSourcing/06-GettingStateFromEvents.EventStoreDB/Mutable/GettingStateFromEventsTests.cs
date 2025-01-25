@@ -1,6 +1,7 @@
 using EventStore.Client;
 using FluentAssertions;
 using IntroductionToEventSourcing.GettingStateFromEvents.Tools;
+using System.Text.Json;
 using Xunit;
 
 namespace IntroductionToEventSourcing.GettingStateFromEvents.Mutable;
@@ -149,9 +150,32 @@ public class GettingStateFromEventsTests: EventStoreDBTest
     /// <param name="streamName"></param>
     /// <param name="ct"></param>
     /// <returns></returns>
-    private static Task<ShoppingCart> GetShoppingCart(EventStoreClient eventStore, string streamName, CancellationToken ct) =>
-        // 1. Add logic here
-        throw new NotImplementedException();
+    private static async Task<ShoppingCart> GetShoppingCart(EventStoreClient eventStore, string streamName, CancellationToken ct)
+    {
+        var result = eventStore.ReadStreamAsync(
+            Direction.Forwards,
+            streamName,
+            StreamPosition.Start,
+            cancellationToken: ct
+        );
+
+        if (await result.ReadState == ReadState.StreamNotFound)
+            throw new InvalidOperationException("Shopping Cart doenst exist!");
+
+        var shoppingCart = new ShoppingCart();
+
+        await foreach (var @event in result)
+        {
+            var eventData = JsonSerializer.Deserialize(
+                @event.Event.Data.Span,
+                Type.GetType(@event.Event.EventType, true)!
+            );
+
+            shoppingCart.Evolve(eventData!);
+        }
+
+        return shoppingCart;
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]

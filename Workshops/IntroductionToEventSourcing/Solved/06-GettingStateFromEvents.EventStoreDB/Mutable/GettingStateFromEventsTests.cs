@@ -178,6 +178,7 @@ public class GettingStateFromEventsTests: EventStoreDBTest
     }
 
     [Fact]
+    [Trait("Category", "SkipCI")]
     public async Task GettingState_FromEventStoreDB_ShouldSucceed()
     {
         var shoppingCartId = Guid.NewGuid();
@@ -191,7 +192,7 @@ public class GettingStateFromEventsTests: EventStoreDBTest
         var tShirt =
             new PricedProductItem { ProductId = tShirtId, Quantity = 1, UnitPrice = 50 };
 
-        var events = new object[]
+        var events = new ShoppingCartEvent[]
         {
             new ShoppingCartOpened(shoppingCartId, clientId),
             new ProductItemAddedToShoppingCart(shoppingCartId, twoPairsOfShoes),
