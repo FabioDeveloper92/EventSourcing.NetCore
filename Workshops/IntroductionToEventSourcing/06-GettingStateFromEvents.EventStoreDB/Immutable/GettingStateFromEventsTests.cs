@@ -1,6 +1,7 @@
 using EventStore.Client;
 using FluentAssertions;
 using IntroductionToEventSourcing.GettingStateFromEvents.Tools;
+using System.Text.Json;
 using Xunit;
 
 namespace IntroductionToEventSourcing.GettingStateFromEvents.Immutable;
@@ -35,7 +36,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -53,7 +54,72 @@ public record ShoppingCart(
     PricedProductItem[] ProductItems,
     DateTime? ConfirmedAt = null,
     DateTime? CanceledAt = null
-);
+)
+{
+    public static ShoppingCart Default() => new(default, default, default, []);
+
+    public static ShoppingCart Evolve(ShoppingCart shoppingCart, object @event) =>
+        @event switch
+        {
+            ShoppingCartOpened evt => HandleShoppingCartOpened(shoppingCart, evt),
+            ProductItemAddedToShoppingCart evt => HandleProductItemAdded(shoppingCart, evt),
+            ProductItemRemovedFromShoppingCart evt => HandleProductItemRemoved(shoppingCart, evt),
+            ShoppingCartConfirmed evt => HandleShoppingCartConfirmed(shoppingCart, evt),
+            ShoppingCartCanceled evt => HandleShoppingCartCanceled(shoppingCart, evt),
+            _ => shoppingCart
+        };
+
+    private static ShoppingCart HandleShoppingCartOpened(ShoppingCart shoppingCart, ShoppingCartOpened evt) =>
+        shoppingCart with
+        {
+            Id = evt.ShoppingCartId,
+            ClientId = evt.ClientId,
+            Status = ShoppingCartStatus.Pending
+        };
+
+    private static ShoppingCart HandleProductItemAdded(ShoppingCart shoppingCart, ProductItemAddedToShoppingCart evt)
+    {
+        var updatedProductItems = shoppingCart.ProductItems
+            .Concat(new[] { evt.ProductItem })
+            .GroupBy(pi => pi.ProductId)
+            .Select(group => group.Count() == 1
+                ? group.First()
+                : new PricedProductItem(
+                    group.Key,
+                    group.Sum(pi => pi.Quantity),
+                    group.First().UnitPrice
+                ))
+            .ToArray();
+
+        return shoppingCart with { ProductItems = updatedProductItems };
+    }
+
+    private static ShoppingCart HandleProductItemRemoved(ShoppingCart shoppingCart, ProductItemRemovedFromShoppingCart evt)
+    {
+        var updatedProductItems = shoppingCart.ProductItems
+            .Select(pi => pi.ProductId == evt.ProductItem.ProductId
+                ? pi with { Quantity = pi.Quantity - evt.ProductItem.Quantity }
+                : pi)
+            .Where(pi => pi.Quantity > 0)
+            .ToArray();
+
+        return shoppingCart with { ProductItems = updatedProductItems };
+    }
+
+    private static ShoppingCart HandleShoppingCartConfirmed(ShoppingCart shoppingCart, ShoppingCartConfirmed evt) =>
+        shoppingCart with
+        {
+            Status = ShoppingCartStatus.Confirmed,
+            ConfirmedAt = evt.ConfirmedAt
+        };
+
+    private static ShoppingCart HandleShoppingCartCanceled(ShoppingCart shoppingCart, ShoppingCartCanceled evt) =>
+        shoppingCart with
+        {
+            Status = ShoppingCartStatus.Canceled,
+            CanceledAt = evt.CanceledAt
+        };
+}
 
 public enum ShoppingCartStatus
 {
@@ -68,9 +134,31 @@ public class GettingStateFromEventsTests: EventStoreDBTest
     /// Solution - Mutable entity with When method
     /// </summary>
     /// <returns></returns>
-    private static Task<ShoppingCart> GetShoppingCart(EventStoreClient eventStore, string streamName, CancellationToken ct) =>
-        // 1. Add logic here
-        throw new NotImplementedException();
+    private static async Task<ShoppingCart> GetShoppingCart(EventStoreClient eventStore, string streamName, CancellationToken ct)
+    {
+        var res = eventStore.ReadStreamAsync(
+            Direction.Forwards,
+            streamName,
+            StreamPosition.Start,
+            cancellationToken: ct
+        );
+
+        if (await res.ReadState == ReadState.StreamNotFound)
+            throw new InvalidOperationException("Shopping Cart doesnt exist!");
+
+        return await res
+            .Select(@event =>
+                JsonSerializer.Deserialize(
+                    @event.Event.Data.Span,
+                    Type.GetType(@event.Event.EventType, true)!
+                )!
+            )
+            .AggregateAsync(
+                ShoppingCart.Default(),
+                ShoppingCart.Evolve,
+                ct
+            );
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
