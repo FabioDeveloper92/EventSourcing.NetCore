@@ -50,18 +50,17 @@ public class ProductItem
 }
 
 // ENTITY
-public class ShoppingCart
+public class ShoppingCart: Aggregate<ShoppingCartEvent>
 {
-    public Guid Id { get; private set; }
     public Guid ClientId { get; private set; }
     public ShoppingCartStatus Status { get; private set; }
     public IList<PricedProductItem> ProductItems { get; } = new List<PricedProductItem>();
     public DateTime? ConfirmedAt { get; private set; }
     public DateTime? CanceledAt { get; private set; }
 
-    public ShoppingCartEvent[] UncommittedEvents { get; private set; } = [];
+    public bool IsClosed => ShoppingCartStatus.Closed.HasFlag(Status);
 
-    public void Evolve(object @event)
+    public override void Evolve(ShoppingCartEvent @event)
     {
         switch (@event)
         {
@@ -83,12 +82,25 @@ public class ShoppingCart
         }
     }
 
+    public static ShoppingCart Open(Guid cartId, Guid clientId) =>
+        new(cartId, clientId);
+
     public static ShoppingCart Initial() => new();
 
-    public static ShoppingCart Open(
-        Guid cartId,
-        Guid clientId) =>
-        throw new NotImplementedException("Fill the implementation part");
+    private ShoppingCart(
+        Guid id,
+        Guid clientId)
+    {
+        var @event = new ShoppingCartOpened(
+            id,
+            clientId
+        );
+
+        Enqueue(@event);
+    }
+
+    //just for default creation of empty object
+    private ShoppingCart() { }
 
     private void Apply(ShoppingCartOpened opened)
     {
@@ -98,10 +110,19 @@ public class ShoppingCart
     }
 
     public void AddProduct(
-        IProductPriceCalculator priceCalculator,
-        ProductItem productItem
-    ) =>
-        throw new NotImplementedException("Fill the implementation part");
+        IProductPriceCalculator productPriceCalculator,
+        ProductItem productItem)
+    {
+        if (IsClosed)
+            throw new InvalidOperationException(
+                $"Adding product item for cart in '{Status}' status is not allowed.");
+
+        var pricedProductItem = productPriceCalculator.Calculate(productItem);
+
+        var @event = new ProductItemAddedToShoppingCart(Id, pricedProductItem);
+
+        Enqueue(@event);
+    }
 
     private void Apply(ProductItemAddedToShoppingCart productItemAdded)
     {
@@ -119,8 +140,28 @@ public class ShoppingCart
             current.Quantity += quantityToAdd;
     }
 
-    public void RemoveProduct(PricedProductItem productItemToBeRemoved) =>
-        throw new NotImplementedException("Fill the implementation part");
+    public void RemoveProduct(PricedProductItem productItemToBeRemoved)
+    {
+        if (IsClosed)
+            throw new InvalidOperationException(
+                $"Removing product item for cart in '{Status}' status is not allowed.");
+
+        if (!HasEnough(productItemToBeRemoved))
+            throw new InvalidOperationException("Not enough product items to remove");
+
+        var @event = new ProductItemRemovedFromShoppingCart(Id, productItemToBeRemoved);
+
+        Enqueue(@event);
+    }
+
+    private bool HasEnough(PricedProductItem productItem)
+    {
+        var currentQuantity = ProductItems.Where(pi => pi.ProductId == productItem.ProductId)
+            .Select(pi => pi.Quantity)
+            .FirstOrDefault();
+
+        return currentQuantity >= productItem.Quantity;
+    }
 
     private void Apply(ProductItemRemovedFromShoppingCart productItemRemoved)
     {
@@ -138,8 +179,19 @@ public class ShoppingCart
             current.Quantity -= quantityToRemove;
     }
 
-    public void Confirm() =>
-        throw new NotImplementedException("Fill the implementation part");
+    public void Confirm()
+    {
+        if (IsClosed)
+            throw new InvalidOperationException(
+                $"Confirming cart in '{Status}' status is not allowed.");
+
+        if (ProductItems.Count == 0)
+            throw new InvalidOperationException($"Cannot confirm empty shopping cart");
+
+        var @event = new ShoppingCartConfirmed(Id, DateTime.UtcNow);
+
+        Enqueue(@event);
+    }
 
     private void Apply(ShoppingCartConfirmed confirmed)
     {
@@ -147,8 +199,16 @@ public class ShoppingCart
         ConfirmedAt = confirmed.ConfirmedAt;
     }
 
-    public void Cancel() =>
-        throw new NotImplementedException("Fill the implementation part");
+    public void Cancel()
+    {
+        if (IsClosed)
+            throw new InvalidOperationException(
+                $"Canceling cart in '{Status}' status is not allowed.");
+
+        var @event = new ShoppingCartCanceled(Id, DateTime.UtcNow);
+
+        Enqueue(@event);
+    }
 
     private void Apply(ShoppingCartCanceled canceled)
     {
@@ -161,5 +221,7 @@ public enum ShoppingCartStatus
 {
     Pending = 1,
     Confirmed = 2,
-    Canceled = 4
+    Canceled = 4,
+
+    Closed = Confirmed | Canceled
 }
