@@ -52,7 +52,7 @@ public static class ShoppingCartService
 
         if (shoppingCart.IsClosed)
             throw new InvalidOperationException(
-                $"Adding product item for cart in '{shoppingCart.Status}' status is not allowed.");
+                $"Try to add a product in a ShoppingCart with '{shoppingCart.Status}' status is not allowed.");
 
         var pricedProductItem = priceCalculator.Calculate(productItem);
 

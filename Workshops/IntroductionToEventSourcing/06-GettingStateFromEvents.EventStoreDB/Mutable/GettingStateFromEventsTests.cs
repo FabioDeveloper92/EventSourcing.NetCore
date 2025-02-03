@@ -60,7 +60,7 @@ public class ShoppingCart
     public DateTime? ConfirmedAt { get; private set; }
     public DateTime? CanceledAt { get; private set; }
 
-    public void Evolve(ShoppingCartEvent @event)
+    public void Evolve(object @event)
     {
         switch (@event)
         {

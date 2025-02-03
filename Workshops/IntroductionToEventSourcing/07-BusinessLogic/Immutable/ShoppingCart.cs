@@ -30,7 +30,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -56,8 +56,19 @@ public record ShoppingCart(
     DateTime? CanceledAt = null
 )
 {
+    public bool IsClosed => ShoppingCartStatus.Closed.HasFlag(Status);
+
+    public bool HasEnough(PricedProductItem productItem)
+    {
+        var currentQuantity = ProductItems.Where(pi => pi.ProductId == productItem.ProductId)
+            .Select(pi => pi.Quantity)
+            .FirstOrDefault();
+
+        return currentQuantity >= productItem.Quantity;
+    }
+
     public static ShoppingCart Default() =>
-        new (default, default, default, []);
+        new(default, default, default, []);
 
     public static ShoppingCart Evolve(ShoppingCart shoppingCart, ShoppingCartEvent @event) =>
         @event switch
@@ -73,9 +84,9 @@ public record ShoppingCart(
                 shoppingCart with
                 {
                     ProductItems = shoppingCart.ProductItems
-                        .Concat(new [] { pricedProductItem })
+                        .Concat(new[] { pricedProductItem })
                         .GroupBy(pi => pi.ProductId)
-                        .Select(group => group.Count() == 1?
+                        .Select(group => group.Count() == 1 ?
                             group.First()
                             : new PricedProductItem(
                                 group.Key,
@@ -89,9 +100,9 @@ public record ShoppingCart(
                 shoppingCart with
                 {
                     ProductItems = shoppingCart.ProductItems
-                        .Select(pi => pi.ProductId == pricedProductItem.ProductId?
+                        .Select(pi => pi.ProductId == pricedProductItem.ProductId ?
                             pi with { Quantity = pi.Quantity - pricedProductItem.Quantity }
-                            :pi
+                            : pi
                         )
                         .Where(pi => pi.Quantity > 0)
                         .ToArray()
@@ -116,5 +127,7 @@ public enum ShoppingCartStatus
 {
     Pending = 1,
     Confirmed = 2,
-    Canceled = 4
+    Canceled = 4,
+
+    Closed = Confirmed | Canceled
 }
